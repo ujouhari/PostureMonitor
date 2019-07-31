@@ -229,11 +229,16 @@ class Sensei(QMainWindow):
         global pauseOn  # FIXME: Replace with preferences dictionary or similar
         pauseOn = not pauseOn
         
-    def pause(self, pauseOn = true):
-        pass
+        if pauseOn:
+            self.pause()
+        else:
+            self.unpause()
+        
+    def pause(self):
+        self.timer.stop()
         
     def unpause(self):
-        pass 
+        self.timer.start(MONITOR_DELAY) 
 
     def minimize(self):
         self.reset()
