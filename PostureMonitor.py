@@ -340,6 +340,9 @@ class Sensei(QMainWindow):
         else:
             self.trayIcon.showMessage("Posture Monitor 🙇", "Bad posture detected, please sit up striaght.",
                                       QSystemTrayIcon.Information, 4000)
+        if soundOn:
+            os.system('afplay /System/Library/Sounds/Sosumi.aiff')
+
 
     def calibrate(self):
         if self.mode == 2:  # Came from 'Recalibrate'
