@@ -18,7 +18,8 @@ from cv2 import (VideoCapture, waitKey, CascadeClassifier, cvtColor,
 from PyQt5.QtWidgets import (QPushButton, QApplication, QProgressBar, QLabel,
                              QInputDialog, qApp, QAction, QMenu,
                              QSystemTrayIcon, QMainWindow, QDialog)
-from PyQt5.QtCore import (QThread, QTimer, QRect, QPropertyAnimation)
+from PyQt5.QtCore import (QThread, QTimer, QRect, QPropertyAnimation, QUrl)
+from PyQt5.QtMultimedia import (QMediaContent, QMediaPlayer)
 from PyQt5.QtGui import QIcon
 
 # CASCPATH = "/usr/local/opt/opencv3/share/OpenCV/haarcascades/haarcascade_frontalface_default.xml"
@@ -49,6 +50,11 @@ print("path:", pyInstallerResourcePath(CASCPATH))
 
 APP_ICON_PATH = pyInstallerResourcePath('posture.png')
 
+if not 'darwin' in sys.platform:
+    url = QUrl.fromLocalFile("/C/Windows/media/Alarm10.wav")
+    content = QMediaContent(url)
+    player = QMediaPlayer()
+    player.setMedia(content)
 
 def trace(frame, event, arg):
     print(("%s, %s:%d" % (event, frame.f_code.co_filename, frame.f_lineno)))
@@ -65,7 +71,7 @@ def getFaces(frame):
         #         flags=cv2.cv.CV_HAAR_SCALE_IMAGE
         flags=0)
     if len(faces):
-        print("Face found: ", faces[0])
+        print("Face found: ", faces[0], flush=True)
     return faces
 
 
@@ -299,7 +305,7 @@ class Sensei(QMainWindow):
         photo = self.capture.takePhoto()
         faces = getFaces(photo)
         while not len(faces):
-            print("No faces detected.")
+            print("No faces detected.", flush=True)
             time.sleep(2)
             photo = self.capture.takePhoto()
             faces = getFaces(photo)
@@ -341,7 +347,11 @@ class Sensei(QMainWindow):
             self.trayIcon.showMessage("Posture Monitor 🙇", "Bad posture detected, please sit up striaght.",
                                       QSystemTrayIcon.Information, 4000)
         if soundOn:
-            os.system('afplay /System/Library/Sounds/Sosumi.aiff')
+            if 'darwin' in sys.platform:
+                os.system('afplay /System/Library/Sounds/Sosumi.aiff')
+            else:
+                print("playing sound", flush=True)
+                player.play()
 
 
     def calibrate(self):
@@ -358,7 +368,7 @@ class Sensei(QMainWindow):
         photo = self.capture.takePhoto()
         faces = getFaces(photo)
         while not len(faces):
-            print("No faces detected.")
+            print("No faces detected.", flush=True)
             time.sleep(2)
             photo = self.capture.takePhoto()
             faces = getFaces(photo)
@@ -437,7 +447,9 @@ def main():
     qt_args = sys.argv[:1] + unparsed_args
     app = QApplication(qt_args)
     sensei = Sensei()
-    sys.exit(app.exec_())
+    ret = app.exec_()
+    app.lastWindowClosed.connect(player.stop)
+    sys.exit(ret)
 
 
 if __name__ == '__main__':
