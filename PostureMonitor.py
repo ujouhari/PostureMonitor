@@ -6,6 +6,7 @@ import sys
 import pickle
 import argparse
 import datetime
+import numpy as np
 
 from aboutGUI import Ui_AboutWindow
 from PyInstallerUtils import pyInstallerResourcePath
@@ -50,6 +51,12 @@ print("path:", pyInstallerResourcePath(CASCPATH))
 
 APP_ICON_PATH = pyInstallerResourcePath('posture.png')
 
+FaceData = []
+LastFaceFoundTime = time.time()
+LastNotificationTime = 0
+MINIMUM_SECONDS_BETWEEN_NOTIFICATIONS = 30
+REMINDER_INTERVAL_SECONDS = 60 * 20
+
 if not 'darwin' in sys.platform:
     url = QUrl.fromLocalFile("/C/Windows/media/Alarm10.wav")
     content = QMediaContent(url)
@@ -61,8 +68,9 @@ def trace(frame, event, arg):
     return trace
 
 
-def getFaces(frame):
+def getFace(frame):
     gray = cvtColor(frame, COLOR_BGR2GRAY)
+    face = None
     faces = FACECASCADE.detectMultiScale(
         gray,
         scaleFactor=1.1,
@@ -71,8 +79,21 @@ def getFaces(frame):
         #         flags=cv2.cv.CV_HAAR_SCALE_IMAGE
         flags=0)
     if len(faces):
-        print("Face found: ", faces[0], flush=True)
-    return faces
+        face = faces[0]
+        
+        global FaceData
+        FaceData.append(face)
+        if len(FaceData) < 4:
+            while len(FaceData) < 4:
+                FaceData.append(face)
+        if len(FaceData) > 4:
+            FaceData.pop(0)
+            
+        cumTotal = np.cumsum(FaceData, axis=0)
+        face = cumTotal[-1] / 4
+        print("Face found: {} ({})".format(faces[0], face), flush=True)
+        
+    return face
 
 
 class Sensei(QMainWindow):
@@ -302,26 +323,45 @@ class Sensei(QMainWindow):
         Grab the picture, find the face, and sent notification
         if needed.
         """
+        global LastFaceFoundTime
         photo = self.capture.takePhoto()
-        faces = getFaces(photo)
-        while not len(faces):
-            print("No faces detected.", flush=True)
+        face = getFace(photo)
+        while face is None:
+            print("No faces detected for {} seconds.".format(round(time.time() - LastFaceFoundTime)), flush=True)
             time.sleep(2)
             photo = self.capture.takePhoto()
-            faces = getFaces(photo)
+            face = getFace(photo)
+            
+        LastFaceFoundTime = time.time()
+        
         # Record history for later analyis.
         # TODO: Make this into cvs-friendly format.
         self.history[USER_ID][SESSION_ID][datetime.datetime.now().strftime(
-            '%Y-%m-%d_%H-%M-%S')] = faces
-        x, y, w, h = faces[0]
+            '%Y-%m-%d_%H-%M-%S')] = face
+        x, y, w, h = face
         if (w > self.upright * SENSITIVITY_FORWARD)  or w < (self.upright * SENSITIVITY_BACK) or y > (self.height * SENSITIVITY_HEIGHT):
+            print('{}{}{}'.format('F' if w > self.upright * SENSITIVITY_FORWARD else 'f',  'B' if w < (self.upright * SENSITIVITY_BACK) else 'b', 'H' if y > (self.height * SENSITIVITY_HEIGHT) else 'h'), flush=True)
+            global LastNotificationTime
+            if time.time() - LastNotificationTime < MINIMUM_SECONDS_BETWEEN_NOTIFICATIONS:
+                return
+            LastNotificationTime = time.time()
             self.notify(
                 title='Posture Monitor 🙇',  # TODO: Add doctor emoji `👨‍⚕️`
                 subtitle='Alert!',
                 message='Bad Posture, please sit up straight',
                 appIcon=APP_ICON_PATH)
-
+        else:
+            if time.time() - LastNotificationTime > REMINDER_INTERVAL_SECONDS:
+                # No notifications lately - post reminder
+                LastNotificationTime = time.time()
+                self.notify(
+                title='Posture Monitor 🙇',  # TODO: Add doctor emoji `👨‍⚕️`
+                subtitle='Reminder!',
+                message='Check your posture.',
+                appIcon=APP_ICON_PATH)
+                
     def notify(self, title, subtitle, message, sound=None, appIcon=None):
+                
         """
         Mac-only and requires `terminal-notifier` to be installed.
         # TODO: Add check that terminal-notifier is installed.
@@ -350,7 +390,6 @@ class Sensei(QMainWindow):
             if 'darwin' in sys.platform:
                 os.system('afplay /System/Library/Sounds/Sosumi.aiff')
             else:
-                print("playing sound", flush=True)
                 player.play()
 
 
@@ -366,17 +405,17 @@ class Sensei(QMainWindow):
             self.timer.start(CALIBRATION_SAMPLE_RATE)
         # Interpolate posture information from face.
         photo = self.capture.takePhoto()
-        faces = getFaces(photo)
-        while not len(faces):
+        face = getFace(photo)
+        while face is None:
             print("No faces detected.", flush=True)
             time.sleep(2)
             photo = self.capture.takePhoto()
-            faces = getFaces(photo)
+            face = getFace(photo)
         # TODO: Focus on user's face rather than artifacts of face detector of others
         # on camera
         # if len(faces) > 1:
         # print(faces) # Take argmax of faces
-        x, y, w, h = faces[0]
+        x, y, w, h = face
         self.upright = w
         self.height = y
         self.history[USER_ID][SESSION_ID][datetime.datetime.now().strftime(
