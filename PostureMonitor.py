@@ -43,6 +43,7 @@ pauseOn = False
 USER_ID = None
 SESSION_ID = None
 TERMINAL_NOTIFIER_INSTALLED = None
+NOTIFICATION_COUNT = 0
 
 CASCPATH = 'face.xml'
 # CASCPATH = pyInstallerResourcePath('haarcascade_eye_tree_eyeglasses.xml')
@@ -138,7 +139,7 @@ class Sensei(QMainWindow):
         aboutDialog.setupUi(dialog)
         aboutDialog.githubButton.clicked.connect(self.openGitHub)
         dialog.exec_()
-        self.trayIcon.showMessage("Notice 🙇", "Bad Posture",
+        self.trayIcon.showMessage("Posture Monitor 🙇", "Bad Posture",
                                   QSystemTrayIcon.Information, 4000)
 
     def closeEvent(self, event):
@@ -159,6 +160,7 @@ class Sensei(QMainWindow):
             with open(os.path.join(directory,
                                    str(SESSION_ID) + '.dat'), 'wb') as f:
                 pickle.dump(self.history, f)
+        print(NOTIFICATION_COUNT) 
         qApp.quit()
         
     def pauseEvent(self, event):
@@ -198,14 +200,16 @@ class Sensei(QMainWindow):
         menu.addSeparator()
         menu.addAction(preferencesAction)
         menu.addSeparator()
-        menu.addAction(exitAction)
         optionsMenu = menu.addMenu('&Options')
-        soundToggleAction = QAction(
-            "Toggle Sound", self, triggered=self.toggleSound)
-        optionsMenu.addAction(soundToggleAction)
         pauseToggleAction = QAction(
             "Pause", self, triggered = self.togglePause)
+        self.pauseButton = pauseToggleAction
         optionsMenu.addAction(pauseToggleAction)
+        soundToggleAction = QAction(
+            "Sound Off", self, triggered=self.toggleSound)
+        self.soundButton = soundToggleAction
+        optionsMenu.addAction(soundToggleAction)
+        menu.addAction(exitAction)
 
         # TODO: Add settings panel.
         # changeSettings = QAction(QIcon('exit.png'), "&Settings", self, shortcut="Cmd+,", triggered=self.changeSettings)
@@ -251,6 +255,13 @@ class Sensei(QMainWindow):
     def toggleSound(self):
         global soundOn  # FIXME: Replace with preferences dictionary or similar
         soundOn = not soundOn
+        
+        if soundOn:
+            self.soundButton.setText("Sound Off")
+        else:
+            self.soundButton.setText("Sound On")
+            
+        # print("Sound is:  {}".format(soundOn))
     
     def togglePause(self):
         global pauseOn  # FIXME: Replace with preferences dictionary or similar
@@ -263,9 +274,11 @@ class Sensei(QMainWindow):
         
     def pause(self):
         self.timer.stop()
+        self.pauseButton.setText("Resume")
         
     def unpause(self):
-        self.timer.start(MONITOR_DELAY) 
+        self.timer.start(MONITOR_DELAY)
+        self.pauseButton.setText("Pause")
 
     def minimize(self):
         self.reset()
@@ -339,29 +352,37 @@ class Sensei(QMainWindow):
         self.history[USER_ID][SESSION_ID][datetime.datetime.now().strftime(
             '%Y-%m-%d_%H-%M-%S')] = face
         x, y, w, h = face
-        if (w > self.upright * SENSITIVITY_FORWARD)  or w < (self.upright * SENSITIVITY_BACK) or y > (self.height * SENSITIVITY_HEIGHT):
+        if (w > self.upright * SENSITIVITY_FORWARD)  or (w < self.upright * SENSITIVITY_BACK) or (y > self.height * SENSITIVITY_HEIGHT):
             print('{}{}{}'.format('F' if w > self.upright * SENSITIVITY_FORWARD else 'f',  'B' if w < (self.upright * SENSITIVITY_BACK) else 'b', 'H' if y > (self.height * SENSITIVITY_HEIGHT) else 'h'), flush=True)
             global LastNotificationTime
             if time.time() - LastNotificationTime < MINIMUM_SECONDS_BETWEEN_NOTIFICATIONS:
                 return
+            
             LastNotificationTime = time.time()
+            message = 'Bad Posture, please sit up straight'
+            if w > self.upright * SENSITIVITY_FORWARD:
+                message = 'You\'re sitting too far forward, Please sit up straight.'
+            if w < self.upright * SENSITIVITY_BACK:
+                message = 'You\'re sitting too far back, Please sit up straight.'
+            if y > self.height * SENSITIVITY_HEIGHT:
+                message = 'You\'re slumping, Please sit up straight.'
+                
             self.notify(
                 title='Posture Monitor 🙇',  # TODO: Add doctor emoji `👨‍⚕️`
                 subtitle='Alert!',
-                message='Bad Posture, please sit up straight',
+                message=message,
                 appIcon=APP_ICON_PATH)
         else:
             if time.time() - LastNotificationTime > REMINDER_INTERVAL_SECONDS:
                 # No notifications lately - post reminder
                 LastNotificationTime = time.time()
                 self.notify(
-                title='Posture Monitor 🙇',  # TODO: Add doctor emoji `👨‍⚕️`
+                title='Posture Monitor �',  # TODO: Add doctor emoji `�‍⚕️`
                 subtitle='Reminder!',
                 message='Check your posture.',
                 appIcon=APP_ICON_PATH)
-                
-    def notify(self, title, subtitle, message, sound=None, appIcon=None):
-                
+    def notify(self, title, subtitle, message, sound='default', appIcon=None):
+        
         """
         Mac-only and requires `terminal-notifier` to be installed.
         # TODO: Add check that terminal-notifier is installed.
@@ -375,22 +396,27 @@ class Sensei(QMainWindow):
         # FIXME: Test following line on windows / linux.
         # Doesn't work on Mac and might replace `terminal-notifier` dependency
         # self.trayIcon.showMessage('Title', 'Content')
+        global NOTIFICATION_COUNT
+        global soundOn
+        
         if 'darwin' in sys.platform and TERMINAL_NOTIFIER_INSTALLED:  # Check if on a Mac.
             t = '-title {!r}'.format(title)
             s = '-subtitle {!r}'.format(subtitle)
             m = '-message {!r}'.format(message)
             snd = '-sound {!r}'.format(sound)
             i = '-appIcon {!r}'.format(appIcon)
-            os.system('terminal-notifier {}'.format(' '.join([m, t, s, snd,
-                                                              i])))
+            if soundOn:
+                os.system('terminal-notifier {}'.format(' '.join([m, t, s, snd, i])))
+            else:
+                os.system('terminal-notifier {}'.format(' '.join([m, t, s, i])))
         else:
             self.trayIcon.showMessage("Posture Monitor 🙇", "Bad posture detected, please sit up striaght.",
                                       QSystemTrayIcon.Information, 4000)
-        if soundOn:
-            if 'darwin' in sys.platform:
-                os.system('afplay /System/Library/Sounds/Sosumi.aiff')
-            else:
+            if soundOn: 
+                print("Playing sound", flush=True)
                 player.play()
+                    
+        NOTIFICATION_COUNT += 1
 
 
     def calibrate(self):
@@ -472,7 +498,8 @@ def processCLArgs():
 
 
 def main():
-
+    global TERMINAL_NOTIFIER_INSTALLED
+    
     parsed_args, unparsed_args = processCLArgs()
     SESSION_ID = parsed_args.session
     USER_ID = parsed_args.user
